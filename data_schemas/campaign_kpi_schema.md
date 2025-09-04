@@ -34,18 +34,18 @@ IO Tech campaign measurement KPI data. This table contains campaign performance 
 - `KPI_CLASS` (VARCHAR): KPI classification category
 - `KPI_N` (FLOAT): KPI numerator value
 - `KPI_D` (FLOAT): KPI denominator value
-- `BM_D` (NUMBER): Benchmark denominator value
-- `BM_N` (NUMBER): Benchmark numerator value
+- `BM_D` (INTEGER): Benchmark denominator value
+- `BM_N` (INTEGER): Benchmark numerator value
 - `R_MEDIACOST` (FLOAT): Media cost amount
 - `R_IMPRESSIONS` (FLOAT): Number of impressions
 - `R_CLICKS` (FLOAT): Number of clicks
-- `R_ENGAGEMENTS` (NUMBER): Number of engagements
-- `R_VIDEOSTARTS` (NUMBER): Number of video starts
-- `R_VIDEO25` (NUMBER): Number of 25% video completions
-- `R_VIDEO50` (NUMBER): Number of 50% video completions
-- `R_VIDEO75` (NUMBER): Number of 75% video completions
-- `R_VIDEOCOMPLETES` (NUMBER): Number of video completions
-- `R_VIEWS` (NUMBER): Number of views
+- `R_ENGAGEMENTS` (INTEGER): Number of engagements
+- `R_VIDEOSTARTS` (INTEGER): Number of video starts
+- `R_VIDEO25` (INTEGER): Number of 25% video completions
+- `R_VIDEO50` (INTEGER): Number of 50% video completions
+- `R_VIDEO75` (INTEGER): Number of 75% video completions
+- `R_VIDEOCOMPLETES` (INTEGER): Number of video completions
+- `R_VIEWS` (INTEGER): Number of views
 
 ## Table Relationships
 *No explicit relationships defined - this is synthetic data for testing purposes*

@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 import json
+import re
 from pathlib import Path
 from typing import Dict, List, Any, Union
 from datetime import datetime, timedelta
@@ -14,14 +15,18 @@ class SyntheticDataGenerator:
     Uses the generation rules created by generate_stats.py to create realistic CSV files.
     """
     
-    def __init__(self, stats_dir: str = "data/stats", output_dir: str = "data"):
+    def __init__(self, stats_dir: str = "data/stats", output_dir: str = "data", schema_dir: str = "data_schemas"):
         self.stats_dir = Path(stats_dir)
         self.output_dir = Path(output_dir)
+        self.schema_dir = Path(schema_dir)
         self.output_dir.mkdir(exist_ok=True)
         self.fake = Faker()
         Faker.seed(42)  # For reproducible results
         np.random.seed(42)
         random.seed(42)
+        
+        # Cache for schema-based column types
+        self._schema_column_types = {}
     
     def load_generation_rules(self) -> Dict[str, Dict]:
         """Load all generation rules from the stats directory."""
@@ -34,6 +39,113 @@ class SyntheticDataGenerator:
                 rules_dict[table_name] = json.load(f)
         
         return rules_dict
+    
+    def _parse_schema_column_types(self, table_name: str) -> Dict[str, str]:
+        """Parse schema file to extract column data types.
+        
+        Args:
+            table_name: Name of the table (e.g., 'campaign_delivery')
+            
+        Returns:
+            Dict mapping column names to their schema data types (INTEGER, FLOAT, VARCHAR, etc.)
+        """
+        if table_name in self._schema_column_types:
+            return self._schema_column_types[table_name]
+        
+        # Look for schema file
+        schema_file = self.schema_dir / f"{table_name}_schema.md"
+        if not schema_file.exists():
+            print(f"Warning: Schema file not found: {schema_file}")
+            return {}
+        
+        column_types = {}
+        
+        try:
+            with open(schema_file, 'r') as f:
+                content = f.read()
+            
+            # Parse markdown lines that define columns
+            # Pattern: - `COLUMN_NAME` (DATA_TYPE): Description
+            pattern = r'^-\s*`([^`]+)`\s*\(([^)]+)\):'
+            
+            for line in content.split('\n'):
+                match = re.match(pattern, line.strip())
+                if match:
+                    column_name = match.group(1).strip()
+                    data_type = match.group(2).strip().upper()
+                    
+                    # Normalize data type names
+                    if data_type in ['INTEGER', 'INT']:
+                        normalized_type = 'INTEGER'
+                    elif data_type in ['FLOAT', 'DOUBLE', 'DECIMAL', 'NUMERIC']:
+                        normalized_type = 'FLOAT'
+                    elif data_type in ['NUMBER']:
+                        # NUMBER could be either integer or float - default to FLOAT for safety
+                        normalized_type = 'FLOAT'
+                    elif data_type in ['VARCHAR', 'TEXT', 'STRING']:
+                        normalized_type = 'VARCHAR'
+                    elif data_type in ['DATE', 'TIMESTAMP', 'DATETIME']:
+                        normalized_type = 'DATE'
+                    elif data_type in ['BOOLEAN', 'BOOL']:
+                        normalized_type = 'BOOLEAN'
+                    else:
+                        normalized_type = data_type
+                    
+                    column_types[column_name] = normalized_type
+            
+            print(f"Parsed {len(column_types)} column types from {schema_file}")
+            
+        except Exception as e:
+            print(f"Warning: Failed to parse schema file {schema_file}: {e}")
+            return {}
+        
+        # Cache the results
+        self._schema_column_types[table_name] = column_types
+        return column_types
+    
+    def _get_schema_data_type(self, table_name: str, column_name: str) -> str:
+        """Get the schema data type for a specific column.
+        
+        Returns:
+            Schema data type (INTEGER, FLOAT, VARCHAR, etc.) or None if not found
+        """
+        column_types = self._parse_schema_column_types(table_name)
+        return column_types.get(column_name)
+    
+    def _is_rate_column_by_schema(self, table_name: str, column_name: str) -> bool:
+        """Determine if a column represents a rate/percentage based on schema and context.
+        
+        Only columns that are:
+        1. FLOAT type in schema
+        2. Have names indicating rates/percentages (like CTR, CVR, *_RATE, etc.)
+        
+        Should be treated as rate columns for Beta distribution sampling.
+        R_* columns are NOT automatically rate columns - they need explicit rate naming.
+        """
+        schema_type = self._get_schema_data_type(table_name, column_name)
+        if schema_type != 'FLOAT':
+            return False
+        
+        name_upper = column_name.upper()
+        
+        # Only specific rate/percentage column patterns
+        rate_patterns = [
+            'CTR',  # Click-through rate
+            'CVR',  # Conversion rate  
+            'CONVERSION_RATE',
+            'VTR',  # View-through rate
+            'VIDEO_COMPLETION_RATE',
+            'COMPLETION_RATE',
+            'ENGAGEMENT_RATE'
+        ]
+        
+        # Check for exact matches or *_RATE pattern (but not R_* prefix)
+        if name_upper in rate_patterns:
+            return True
+        if name_upper.endswith('_RATE') and not name_upper.startswith('R_'):
+            return True
+            
+        return False
     
     def generate_datetime_column(self, rules: Dict[str, Any], num_rows: int) -> pd.Series:
         """Generate datetime column based on rules."""
@@ -117,7 +229,7 @@ class SyntheticDataGenerator:
             return pd.Series(np.random.choice(default_categories, size=num_rows))
     
     def generate_numeric_column(self, rules: Dict[str, Any], num_rows: int, data_type: str) -> pd.Series:
-        """Generate numeric column based on rules."""
+        """Generate numeric column based on rules (supports 'integer' and 'float')."""
         min_val = rules.get('min', 0)
         max_val = rules.get('max', 100)
         mean_val = rules.get('mean', (min_val + max_val) / 2)
@@ -140,13 +252,13 @@ class SyntheticDataGenerator:
         values = np.clip(values, min_val, max_val)
         
         # Convert to appropriate type
-        if data_type in ['integer', 'count']:
+        if data_type == 'integer':
             values = values.astype(int)
-        elif data_type == 'currency':
-            values = np.round(values, 2)
-        elif data_type == 'percentage':
-            values = np.clip(values, 0, 100)
         
+        # Enforce non-negative values unless explicitly allowed by rules
+        if not rules.get('allow_negative', False):
+            values = np.maximum(values, 0)
+
         # Add nulls if needed
         if rules.get('null_probability', 0) > 0:
             null_mask = np.random.random(num_rows) < rules['null_probability']
@@ -202,9 +314,29 @@ class SyntheticDataGenerator:
         return pd.Series(values)
     
     def generate_identifier_column(self, rules: Dict[str, Any], num_rows: int) -> pd.Series:
-        """Generate identifier column based on rules."""
-        # Generate unique identifiers
-        values = [f"ID_{i:08d}" for i in range(1, num_rows + 1)]
+        """Generate identifier column based on rules.
+        
+        Behavior:
+        - If categories/probabilities are provided (from stats), sample from them to
+          preserve real-world patterns and formatting. This avoids fabricating values
+          like "ID_00000001" and keeps consistency with related NAME fields.
+        - Otherwise, fall back to simple string identifiers that mirror source style if
+          a sample pattern was provided, else a sequential numeric-like id.
+        """
+        # Prefer using categorical-style rules when available
+        categories = rules.get('categories')
+        probabilities = rules.get('probabilities')
+        if categories and probabilities and len(categories) == len(probabilities):
+            probs = np.array(probabilities, dtype=float)
+            probs = probs / probs.sum() if probs.sum() > 0 else None
+            if probs is not None:
+                values = np.random.choice(categories, size=num_rows, p=probs)
+            else:
+                values = np.random.choice(categories, size=num_rows)
+            values = values.astype(object)
+        else:
+            # Fallback: sequential ids without synthetic prefixing
+            values = [str(i) for i in range(1, num_rows + 1)]
         
         # Add nulls if needed
         if rules.get('null_probability', 0) > 0:
@@ -228,6 +360,241 @@ class SyntheticDataGenerator:
         
         return pd.Series(values)
     
+    def _is_constant_numeric_rules(self, column_rules: Dict[str, Any]) -> bool:
+        """Check if numeric rules indicate a constant-valued column (min==max or std==0)."""
+        try:
+            has_min_max = 'min' in column_rules and 'max' in column_rules
+            if has_min_max and column_rules['min'] == column_rules['max']:
+                return True
+            if 'std' in column_rules and (column_rules['std'] is None or float(column_rules['std']) == 0.0):
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _sample_rate_like_values(self, n: int, name_upper: str, const_value: float, null_probability: float) -> pd.Series:
+        """Sample plausible marketing rates using Beta priors without relying on other columns.
+
+        The Beta distribution is chosen due to [0,1] support. Parameters are selected
+        using name-based heuristics with a concentration that yields light variability.
+        If the column had a non-zero constant, center the prior near that value.
+        """
+        # Default targets by metric type
+        defaults = {
+            'CTR': (0.01, 200.0),                 # ~1%
+            'CVR': (0.03, 150.0),                 # ~3%
+            'CONVERSION_RATE': (0.03, 150.0),     # alias
+            'VTR': (0.60, 40.0),                  # ~60%
+            'VIDEO_COMPLETION_RATE': (0.60, 40.0)
+        }
+
+        # Generic defaults
+        if name_upper.startswith('R_ENGAGEMENT'):
+            target_mean, k = 0.05, 120.0         # ~5%
+        elif name_upper.startswith('R_') or name_upper.endswith('_RATE'):
+            target_mean, k = 0.02, 150.0         # ~2%
+        else:
+            target_mean, k = defaults.get(name_upper, (0.02, 150.0))
+
+        # If the constant had a positive value, center near it (bounded away from 0/1)
+        if const_value is not None:
+            try:
+                c = float(const_value)
+                if np.isfinite(c) and 0.0 <= c <= 1.0:
+                    # Blend toward default if c is extreme 0/1
+                    eps_low, eps_high = 0.002, 0.98
+                    base = np.clip(c, eps_low, eps_high)
+                    # If c is 0, bump slightly; if 1, reduce slightly
+                    if c <= eps_low:
+                        base = max(target_mean, 0.005)
+                    elif c >= eps_high:
+                        base = min(target_mean if target_mean < 0.9 else 0.9, 0.98)
+                    target_mean = base
+            except Exception:
+                pass
+
+        alpha = max(1e-3, target_mean * k)
+        beta = max(1e-3, (1.0 - target_mean) * k)
+
+        samples = np.random.beta(alpha, beta, size=n)
+
+        if null_probability and null_probability > 0:
+            null_mask = np.random.random(n) < null_probability
+            samples = samples.astype(object)
+            samples[null_mask] = None
+        return pd.Series(samples)
+
+    def _postprocess_numeric_columns(self, df: pd.DataFrame, generation_rules: Dict[str, Any], table_name: str = None) -> pd.DataFrame:
+        """Simplified post-processing: perturb constant numeric columns using realistic rules.
+
+        - Detect constant via rules (min==max or std==0) or generated data (nunique<=1).
+        - For actual rate columns (determined by schema + name patterns), sample from Beta distribution.
+        - For other numerics, add appropriate noise while respecting bounds and types.
+        - CRITICAL: Use schema data types to determine INTEGER vs FLOAT processing.
+        """
+        adjusted_df = df.copy()
+
+        for column_name, column_rules in generation_rules.items():
+            col_type = column_rules.get('type')
+            if col_type not in ['integer', 'float']:
+                continue
+
+            series = adjusted_df[column_name]
+
+            # Identify constants
+            try:
+                is_constant_rules = self._is_constant_numeric_rules(column_rules)
+            except Exception:
+                is_constant_rules = False
+
+            is_constant_series = False
+            try:
+                is_constant_series = series.nunique(dropna=True) <= 1
+            except Exception:
+                pass
+
+            if not (is_constant_rules or is_constant_series):
+                continue
+
+            # Use schema-based determination for rate columns
+            is_rate_column = False
+            if table_name:
+                is_rate_column = self._is_rate_column_by_schema(table_name, column_name)
+
+            null_prob = column_rules.get('null_probability', 0)
+            non_null = series.dropna()
+            const_val = float(non_null.iloc[0]) if len(non_null) > 0 else None
+
+            # Apply rate processing only to actual rate columns (schema FLOAT + rate naming)
+            if is_rate_column:
+                adjusted = self._sample_rate_like_values(len(adjusted_df), column_name.upper(), const_val, null_prob)
+            else:
+                # Non-rate numeric: add small noise around constant while respecting bounds
+                min_val = column_rules.get('min', None)
+                max_val = column_rules.get('max', None)
+                center = const_val if const_val is not None else column_rules.get('mean', 0)
+
+                # For integer columns, use integer-based noise and operations
+                if col_type == 'integer':
+                    # Use integer center value
+                    center = int(center) if center is not None else 0
+                    
+                    # Scale: small integer range for noise
+                    if min_val is not None and max_val is not None and np.isfinite(min_val) and np.isfinite(max_val):
+                        range_span = int(max_val) - int(min_val)
+                        # For integers, use at least 1 for scale, but keep it reasonable
+                        scale = max(int(range_span * 0.02), 1)
+                    else:
+                        scale = max(int(abs(center) * 0.05), 1) if center is not None else 1
+
+                    # Generate integer noise using discrete distribution
+                    # Use Poisson for non-negative integers or normal rounded to int
+                    if center >= 0 and not column_rules.get('allow_negative', False):
+                        # For non-negative integers, use Poisson-like distribution
+                        noise = np.random.poisson(lam=scale, size=len(adjusted_df)) - scale
+                    else:
+                        # For potentially negative integers, use rounded normal
+                        noise = np.round(np.random.normal(loc=0.0, scale=scale, size=len(adjusted_df))).astype(int)
+                    
+                    samples = center + noise
+
+                    # Clip to bounds if provided - keep as integers
+                    if min_val is not None:
+                        samples = np.maximum(samples, int(min_val))
+                    if max_val is not None:
+                        samples = np.minimum(samples, int(max_val))
+
+                    # Ensure we have integers
+                    samples = samples.astype(int)
+                    
+                    # If still constant after operations, force minimal integer jitter within bounds
+                    if len(pd.Series(samples).dropna().unique()) <= 1:
+                        tweak = np.random.choice([-1, 0, 1], size=len(samples))
+                        samples = samples + tweak
+                        if min_val is not None:
+                            samples = np.maximum(samples, int(min_val))
+                        if max_val is not None:
+                            samples = np.minimum(samples, int(max_val))
+                        # Ensure still integers after tweaking
+                        samples = samples.astype(int)
+                
+                else:  # col_type == 'float'
+                    # Scale: small fraction of range or of center magnitude
+                    if min_val is not None and max_val is not None and np.isfinite(min_val) and np.isfinite(max_val):
+                        range_span = float(max_val) - float(min_val)
+                        scale = max(range_span * 0.02, 1e-6)  # Small scale for floats
+                    else:
+                        scale = max(abs(center) * 0.05, 1e-6) if center is not None else 1e-6
+
+                    noise = np.random.normal(loc=0.0, scale=scale, size=len(adjusted_df))
+                    samples = (center if center is not None else 0.0) + noise
+
+                    # Clip to bounds if provided
+                    if min_val is not None:
+                        samples = np.maximum(samples, float(min_val))
+                    if max_val is not None:
+                        samples = np.minimum(samples, float(max_val))
+
+                    samples = samples.astype(float)
+
+                # Preserve original nulls or apply null probability
+                if series.isnull().any():
+                    samples = pd.Series(samples, dtype=object)
+                    samples[series.isnull().values] = None
+                    adjusted = samples
+                else:
+                    if null_prob and null_prob > 0:
+                        m = np.random.random(len(samples)) < null_prob
+                        samples = samples.astype(object)
+                        samples[m] = None
+                    adjusted = pd.Series(samples)
+
+            adjusted_df[column_name] = adjusted
+
+            # Guarantee non-constant outcome; add tiny jitter if needed
+            try:
+                if adjusted_df[column_name].nunique(dropna=True) <= 1:
+                    if is_rate_column:
+                        # Only apply rate-like processing to actual rate columns
+                        base = adjusted_df[column_name].fillna(const_val if const_val is not None else 0.0).astype(float).values
+                        tiny = np.random.beta(2, 200, size=len(adjusted_df)) * 0.01
+                        adjusted_df[column_name] = base + tiny
+                    elif col_type == 'integer':
+                        # For integer columns, add small integer jitter
+                        base_val = int(const_val) if const_val is not None else 0
+                        base = adjusted_df[column_name].fillna(base_val).astype(int).values
+                        tiny = np.random.choice([-1, 0, 1], size=len(adjusted_df))
+                        adjusted_df[column_name] = (base + tiny).astype(int)
+                    else:
+                        # For float columns that aren't rate-like
+                        base = adjusted_df[column_name].fillna(const_val if const_val is not None else 0.0).astype(float).values
+                        tiny = np.random.normal(0.0, 1e-6, size=len(adjusted_df))
+                        adjusted_df[column_name] = base + tiny
+            except Exception:
+                pass
+
+            # Final enforcement: prevent negative values unless explicitly allowed
+            try:
+                if not column_rules.get('allow_negative', False):
+                    col = adjusted_df[column_name]
+                    if col_type == 'integer':
+                        # For integer columns, ensure we maintain integer type
+                        if col.dtype == 'O':  # object type (with nulls)
+                            mask = col.notnull()
+                            adjusted_df.loc[mask, column_name] = pd.to_numeric(col[mask], errors='coerce').clip(lower=0).astype(int)
+                        else:
+                            adjusted_df[column_name] = col.clip(lower=0).astype(int)
+                    else:  # float column
+                        if col.dtype == 'O':
+                            mask = col.notnull()
+                            adjusted_df.loc[mask, column_name] = pd.to_numeric(col[mask], errors='coerce').clip(lower=0)
+                        else:
+                            adjusted_df[column_name] = col.clip(lower=0)
+            except Exception:
+                pass
+
+        return adjusted_df
+
     def generate_table_data(self, table_rules: Dict[str, Any], sample_rows: int = None) -> pd.DataFrame:
         """Generate synthetic data for a single table."""
         table_info = table_rules['table_info']
@@ -250,7 +617,7 @@ class SyntheticDataGenerator:
                 data[column_name] = self.generate_datetime_column(column_rules, sample_rows)
             elif column_type == 'categorical':
                 data[column_name] = self.generate_categorical_column(column_rules, sample_rows)
-            elif column_type in ['integer', 'float', 'currency', 'percentage', 'count']:
+            elif column_type in ['integer', 'float']:
                 data[column_name] = self.generate_numeric_column(column_rules, sample_rows, column_type)
             elif column_type == 'text':
                 data[column_name] = self.generate_text_column(column_rules, sample_rows)
@@ -262,7 +629,18 @@ class SyntheticDataGenerator:
                 # Default to text
                 data[column_name] = self.generate_text_column(column_rules, sample_rows)
         
-        return pd.DataFrame(data)
+        df = pd.DataFrame(data)
+
+        # Simplified numeric post-processing: perturb constant numeric columns
+        try:
+            # Extract table name from table_info for schema lookups
+            original_name = table_info.get('original_name', '')
+            table_name = original_name.lower() if original_name else None
+            df = self._postprocess_numeric_columns(df, generation_rules, table_name)
+        except Exception as e:
+            print(f"  Warning: numeric post-processing failed: {e}")
+        
+        return df
     
     def create_data_schema(self, table_rules: Dict[str, Any], table_name: str) -> str:
         """Create a data schema document for a table."""
@@ -299,9 +677,6 @@ This table contains synthetic data generated based on statistical analysis of th
                 'categorical': 'VARCHAR',
                 'integer': 'INTEGER',
                 'float': 'FLOAT',
-                'currency': 'DECIMAL(10,2)',
-                'percentage': 'DECIMAL(5,2)',
-                'count': 'INTEGER',
                 'text': 'TEXT',
                 'identifier': 'VARCHAR',
                 'boolean': 'BOOLEAN'
@@ -314,7 +689,7 @@ This table contains synthetic data generated based on statistical analysis of th
             
             if column_name in column_metadata:
                 metadata = column_metadata[column_name]
-                if column_type in ['integer', 'float', 'currency', 'percentage', 'count']:
+                if column_type in ['integer', 'float']:
                     if metadata.get('min_value') is not None and metadata.get('max_value') is not None:
                         description += f" (range: {metadata['min_value']:.2f} to {metadata['max_value']:.2f})"
                 elif column_type == 'datetime':
@@ -350,7 +725,7 @@ This synthetic dataset was generated from the original {original_name} table to 
         
         return schema_content
     
-    def generate_all_data(self, sample_rows: int = None, scale_factor: float = 1.0):
+    def generate_all_data(self, sample_rows: int = None, scale_factor: float = 1.0, create_schema: bool = False):
         """Generate synthetic data for all tables with generation rules.
         
         Args:
@@ -378,6 +753,19 @@ This synthetic dataset was generated from the original {original_name} table to 
                 # Generate synthetic data
                 df = self.generate_table_data(table_rules, rows_to_generate)
                 
+                # If id->name mappings exist, ensure consistency across paired columns
+                try:
+                    mappings = table_rules['table_info'].get('id_name_mappings', [])
+                    for m in mappings:
+                        id_col = m.get('id_column')
+                        name_col = m.get('name_column')
+                        mapping = m.get('mapping', {})
+                        if id_col in df.columns and name_col in df.columns and mapping:
+                            # Regenerate the name column based on the id values for row-wise consistency
+                            df[name_col] = df[id_col].map(lambda x: mapping.get(str(x), x))
+                except Exception:
+                    pass
+                
                 # Save as CSV
                 original_name = table_rules['table_info']['original_name']
                 csv_file = self.output_dir / f"{original_name.lower()}.csv"
@@ -385,14 +773,15 @@ This synthetic dataset was generated from the original {original_name} table to 
                 print(f"✓ Saved synthetic data to: {csv_file}")
                 
                 # Create data schema
-                schema_content = self.create_data_schema(table_rules, table_name)
-                schema_dir = Path("data_schemas")
-                schema_dir.mkdir(exist_ok=True)
-                schema_file = schema_dir / f"{original_name.lower()}_schema.md"
-                
-                with open(schema_file, 'w') as f:
-                    f.write(schema_content)
-                print(f"✓ Created data schema: {schema_file}")
+                if create_schema:
+                    schema_content = self.create_data_schema(table_rules, table_name)
+                    schema_dir = Path("data_schemas")
+                    schema_dir.mkdir(exist_ok=True)
+                    schema_file = schema_dir / f"{original_name.lower()}_schema.md"
+                    
+                    with open(schema_file, 'w') as f:
+                        f.write(schema_content)
+                    print(f"✓ Created data schema: {schema_file}")
                 
             except Exception as e:
                 print(f"✗ Error generating data for {table_name}: {str(e)}")
@@ -426,7 +815,7 @@ def main():
     print("Generating scaled-down datasets (0.1% of original size for testing)...")
     print("Original sizes: CAMPAIGN_DELIVERY=3.7M, CAMPAIGN_KPI=5M, CAMPAIGN_PACING=1M rows")
     print("To generate full-size datasets, uncomment the scale_factor=1.0 option above")
-    generator.generate_all_data(sample_rows=None, scale_factor=0.1)
+    generator.generate_all_data(sample_rows=None, scale_factor=0.1, create_schema=False)
     
     # Option 3: Generate fixed number of rows for all tables (uncomment if needed)
     # generator.generate_all_data(sample_rows=1000)

@@ -28,13 +28,13 @@ This table contains IO Tech measurement data for campaign delivery. The data mai
 - `R_MEDIACOST` (FLOAT): Media cost metric
 - `R_IMPRESSIONS` (FLOAT): Impressions metric
 - `R_CLICKS` (FLOAT): Clicks metric
-- `R_ENGAGEMENTS` (NUMBER): Engagements metric
-- `R_VIDEOSTARTS` (NUMBER): Video starts metric
-- `R_VIDEO25` (NUMBER): Video 25% completion metric
-- `R_VIDEO50` (NUMBER): Video 50% completion metric
-- `R_VIDEO75` (NUMBER): Video 75% completion metric
-- `R_VIDEOCOMPLETES` (NUMBER): Video completion metric
-- `R_VIEWS` (NUMBER): Views metric
+- `R_ENGAGEMENTS` (INTEGER): Engagements metric
+- `R_VIDEOSTARTS` (INTEGER): Video starts metric
+- `R_VIDEO25` (INTEGER): Video 25% completion metric
+- `R_VIDEO50` (INTEGER): Video 50% completion metric
+- `R_VIDEO75` (INTEGER): Video 75% completion metric
+- `R_VIDEOCOMPLETES` (INTEGER): Video completion metric
+- `R_VIEWS` (INTEGER): Views metric
 
 ## Table Relationships
 *No explicit relationships defined - this is synthetic data for testing purposes*

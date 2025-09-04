@@ -167,41 +167,57 @@ class DataStatisticsGenerator:
         return perturbed_stats
     
     def get_column_data_type(self, series: pd.Series) -> str:
-        """Determine the semantic data type of a column."""
-        col_name = series.name.lower()
-        
-        # Check for specific patterns in column names
-        if any(keyword in col_name for keyword in ['id', '_id']):
-            return 'identifier'
-        elif any(keyword in col_name for keyword in ['date', 'time', 'timestamp']):
-            return 'datetime'
-        elif any(keyword in col_name for keyword in ['email']):
-            return 'email'
-        elif any(keyword in col_name for keyword in ['phone', 'mobile']):
-            return 'phone'
-        elif any(keyword in col_name for keyword in ['url', 'link']):
-            return 'url'
-        elif any(keyword in col_name for keyword in ['name', 'title', 'description']):
-            return 'text'
-        elif any(keyword in col_name for keyword in ['amount', 'cost', 'price', 'revenue', 'spend']):
-            return 'currency'
-        elif any(keyword in col_name for keyword in ['rate', 'percent', 'ratio']):
-            return 'percentage'
-        elif any(keyword in col_name for keyword in ['count', 'number', 'qty', 'quantity']):
-            return 'count'
-        
-        # Infer from data type
-        if pd.api.types.is_numeric_dtype(series):
-            if pd.api.types.is_integer_dtype(series):
-                return 'integer'
-            else:
-                return 'float'
-        elif pd.api.types.is_datetime64_any_dtype(series):
-            return 'datetime'
-        elif pd.api.types.is_bool_dtype(series):
+        """Determine data type using pandas dtypes and simple cardinality heuristics.
+
+        Goal: Avoid relying on column-name patterns (which misclassify fields like
+        R_VIDEOVIEWS). We infer types strictly from the underlying pandas dtype
+        and basic characteristics of the values.
+        """
+        # Prefer explicit dtype checks
+        if pd.api.types.is_bool_dtype(series):
             return 'boolean'
-        else:
-            return 'categorical' if series.nunique() / len(series) < 0.1 else 'text'
+        if pd.api.types.is_datetime64_any_dtype(series):
+            return 'datetime'
+        if pd.api.types.is_integer_dtype(series):
+            return 'integer'
+        if pd.api.types.is_float_dtype(series) or pd.api.types.is_numeric_dtype(series):
+            # Covers floats and numeric objects coerced as numeric
+            return 'float'
+
+        # If dtype is object, attempt to detect datetime-like strings
+        # We sample to keep performance acceptable on very large columns
+        if pd.api.types.is_object_dtype(series):
+            try:
+                non_null = series.dropna()
+                if not non_null.empty:
+                    sample = non_null.astype(str).sample(
+                        n=min(1000, len(non_null)), random_state=0
+                    )
+                    parsed = pd.to_datetime(sample, errors='coerce')
+                    parse_success_ratio = float(parsed.notna().mean())
+                    # Basic sanity check on year range to avoid accidental parsing
+                    valid_year_ratio = 1.0
+                    try:
+                        years = parsed.dt.year
+                        valid_year_ratio = float(years.between(1900, 2100).mean())
+                    except Exception:
+                        pass
+                    if parse_success_ratio >= 0.8 and valid_year_ratio >= 0.8:
+                        return 'datetime'
+            except Exception:
+                # If parsing raises, fall back to categorical/text logic below
+                pass
+
+        # For object/string columns: decide between categorical vs text
+        try:
+            total = len(series)
+            unique = series.nunique(dropna=True)
+            cardinality_ratio = unique / total if total > 0 else 0
+        except Exception:
+            cardinality_ratio = 1.0
+
+        # Treat low-to-moderate cardinality as categorical; otherwise text
+        return 'categorical' if cardinality_ratio <= 0.3 else 'text'
     
     def calculate_numeric_stats(self, series: pd.Series) -> Dict[str, Any]:
         """Calculate comprehensive statistics for numeric columns."""
@@ -401,7 +417,7 @@ class DataStatisticsGenerator:
                 raw_stats = self.calculate_datetime_stats(series)
                 # *** APPLY DISTRIBUTION PERTURBATION ***
                 col_stats.update(self.perturb_distribution_parameters(raw_stats, data_type))
-            elif data_type in ['categorical', 'identifier']:
+            elif data_type in ['categorical']:
                 raw_stats = self.calculate_categorical_stats(series)
                 # *** APPLY DISTRIBUTION PERTURBATION ***
                 col_stats.update(self.perturb_distribution_parameters(raw_stats, data_type))
@@ -423,6 +439,40 @@ class DataStatisticsGenerator:
                 col_stats.update(self.perturb_distribution_parameters(raw_stats, data_type))
             
             table_stats['columns'][col] = col_stats
+        
+        # Detect and capture stable ID->NAME mappings so we can preserve them during generation
+        try:
+            id_name_mappings: List[Dict[str, Any]] = []
+            upper_cols = {c.upper(): c for c in df.columns}
+            for uc in list(upper_cols.keys()):
+                if uc.endswith('_ID'):
+                    name_uc = uc[:-3] + '_NAME'
+                    if name_uc in upper_cols:
+                        id_col = upper_cols[uc]
+                        name_col = upper_cols[name_uc]
+                        subset = df[[id_col, name_col]].dropna()
+                        if not subset.empty:
+                            # Build mapping using the most common name for each id (in case of noise)
+                            grp = subset.groupby(id_col)[name_col].agg(lambda s: s.value_counts().idxmax())
+                            mapping = {str(k): str(v) for k, v in grp.to_dict().items()}
+                            if len(mapping) > 0:
+                                id_name_mappings.append({
+                                    'id_column': id_col,
+                                    'name_column': name_col,
+                                    'mapping': mapping
+                                })
+                                # Also capture value distribution for the id column to drive generation probabilities
+                                try:
+                                    vc = df[id_col].astype(str).value_counts()
+                                    table_stats['columns'].setdefault(id_col, {})
+                                    table_stats['columns'][id_col]['value_distribution'] = {str(k): int(v) for k, v in vc.to_dict().items()}
+                                except Exception:
+                                    pass
+            if id_name_mappings:
+                table_stats['id_name_mappings'] = id_name_mappings
+        except Exception:
+            # Non-fatal; continue without relationship metadata
+            pass
         
         return table_stats
     
@@ -495,6 +545,16 @@ class DataStatisticsGenerator:
             }
         }
         
+        # Include ID->NAME mappings if discovered
+        if 'id_name_mappings' in stats:
+            rules_data['table_info']['id_name_mappings'] = stats['id_name_mappings']
+        
+        # Determine identifier columns from discovered mappings
+        id_cols = set()
+        if 'id_name_mappings' in stats:
+            for m in stats['id_name_mappings']:
+                id_cols.add(m.get('id_column'))
+
         for col_name, col_stats in stats['columns'].items():
             rules = {
                 'type': col_stats['data_type'],
@@ -532,6 +592,22 @@ class DataStatisticsGenerator:
                     'length_range': [col_stats.get('min_length'), col_stats.get('max_length')],
                     'sample_patterns': col_stats.get('sample_values', [])
                 })
+
+            # Override: if this column is an identifier (paired with *_NAME), export as identifier with categories
+            if col_name in id_cols:
+                rules['type'] = 'identifier'
+                value_dist = stats['columns'].get(col_name, {}).get('value_distribution', {})
+                if value_dist:
+                    rules['categories'] = list(value_dist.keys())
+                    rules['probabilities'] = list(value_dist.values())
+                else:
+                    # Fall back to mapping keys if distribution is unavailable
+                    try:
+                        mapping = next(m['mapping'] for m in stats['id_name_mappings'] if m['id_column'] == col_name)
+                        rules['categories'] = list(mapping.keys())
+                        rules['probabilities'] = [1 for _ in rules['categories']]
+                    except Exception:
+                        pass
             
             # Use original column name as key in generation rules
             rules_data['table_info']['generation_rules'][col_name] = rules
@@ -555,10 +631,11 @@ def main():
     sf_obj = get_snowflake_connection('horizon-staging', database=database, schema=schema)
     
     # Initialize statistics generator
-    stats_generator = DataStatisticsGenerator(sf_obj, output_dir="data")
+    stats_generator = DataStatisticsGenerator(sf_obj, output_dir="data/stats")
     
     # Tables to process
     table_names = ["CAMPAIGN_DELIVERY", "CAMPAIGN_KPI", "CAMPAIGN_PACING"]
+    # table_names = ["CAMPAIGN_DELIVERY"]
 
     limit = 5000000
     
