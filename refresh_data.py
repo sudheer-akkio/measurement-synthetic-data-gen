@@ -56,6 +56,7 @@ class DataRefresher:
             return
 
         df = pd.read_csv(csv_path)
+        original_columns = list(df.columns)
         df['DATE'] = pd.to_datetime(df['DATE'])
 
         original_rows = len(df)
@@ -66,6 +67,8 @@ class DataRefresher:
         print(f"Table: {filename}")
         print(f"  Rows: {original_rows:,}")
         print(f"  Date range: {date_min.date()} .. {date_max.date()}")
+
+        id_name_mappings = table_rules['table_info'].get('id_name_mappings', [])
 
         for week_i in range(1, weeks + 1):
             current_min = df['DATE'].min()
@@ -101,6 +104,9 @@ class DataRefresher:
             new_rows = self.generator.generate_table_data(rules_copy, rows_to_remove)
             new_rows['DATE'] = pd.to_datetime(new_rows['DATE'])
 
+            _apply_id_name_mappings(new_rows, id_name_mappings)
+
+            new_rows = new_rows.reindex(columns=original_columns)
             df = pd.concat([df, new_rows], ignore_index=True)
 
         new_min = df['DATE'].min()
@@ -126,6 +132,16 @@ def _deep_copy_rules(rules: dict) -> dict:
     """Cheap deep copy for JSON-serializable dicts."""
     import json
     return json.loads(json.dumps(rules, default=str))
+
+
+def _apply_id_name_mappings(df: pd.DataFrame, mappings: list) -> None:
+    """Enforce ID->NAME consistency on *df* in place (mirrors generate_all_data)."""
+    for m in mappings:
+        id_col = m.get('id_column')
+        name_col = m.get('name_column')
+        mapping = m.get('mapping', {})
+        if id_col in df.columns and name_col in df.columns and mapping:
+            df[name_col] = df[id_col].map(lambda x, mp=mapping: mp.get(str(x), x))
 
 
 def main():

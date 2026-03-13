@@ -96,6 +96,8 @@ JOIN CAMPAIGN_PACING p
 
 **MAKE SURE TO FOLLOW THIS: When creating a chart with a single trace, always set fig.update_layout(showlegend=True) to prevent Plotly from hiding the legend/tooltip label.**
 
+**Map Visualizations:** Whenever a user requests a map or geographic map visualization, use **Mapbox** (via Plotly's `px.scatter_mapbox` or `go.Scattermapbox`) instead of the default Plotly geo projections. Mapbox is the supported map renderer in Akkio and produces higher-quality, interactive tile-based maps. Set `fig.update_layout(mapbox_style="open-street-map")` for a free tile layer that requires no access token. Use `LATITUDE` and `LONGITUDE` columns for point positioning, and encode metrics like spend, impressions, or efficiency as marker size/color.
+
 ---
 
 ## 4. CALCULATED METRICS & FORMULAS

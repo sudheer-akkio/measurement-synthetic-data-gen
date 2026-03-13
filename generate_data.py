@@ -79,6 +79,7 @@ _EXEC_NAME_REGION_MAP = {
     'Southeast': 'SOUTHEAST',
     'Midwest': 'MIDWEST',
     'Southwest': 'SOUTHWEST',
+    'West': 'WEST',
 }
 
 
@@ -264,6 +265,25 @@ class SyntheticDataGenerator:
             categories = rules['categories']
             probs = np.array(rules['probabilities'], dtype=float)
             probs /= probs.sum()
+
+            # Prevent extreme concentration: cap the max probability for any
+            # single category when there are many categories.  Excess weight
+            # is redistributed proportionally to the remaining categories.
+            n_cats = len(categories)
+            if n_cats >= 20:
+                max_prob = max(3.0 / n_cats, 0.02)
+                excess = np.maximum(probs - max_prob, 0)
+                total_excess = excess.sum()
+                if total_excess > 0:
+                    probs = np.minimum(probs, max_prob)
+                    uncapped_mask = probs < max_prob
+                    uncapped_total = probs[uncapped_mask].sum()
+                    if uncapped_total > 0:
+                        probs[uncapped_mask] += total_excess * (probs[uncapped_mask] / uncapped_total)
+                    else:
+                        probs += total_excess / n_cats
+                    probs /= probs.sum()
+
             values = np.random.choice(categories, size=num_rows, p=probs)
             if rules.get('null_probability', 0) > 0:
                 mask = np.random.random(num_rows) < rules['null_probability']
@@ -420,8 +440,13 @@ class SyntheticDataGenerator:
             df['R_ENGAGEMENTS'] = np.round(impressions * eng_rate).astype(int)
 
         if 'R_VIDEOSTARTS' in df.columns:
+            # Cap impressions for video derivation so extreme tail values
+            # don't produce outsized video completes when aggregated by creative.
+            imp_p95 = np.percentile(impressions, 95)
+            video_imp = np.minimum(impressions, imp_p95)
+
             vid_rate = np.random.beta(5, 10, size=n)
-            video_starts = np.round(impressions * vid_rate).astype(int)
+            video_starts = np.round(video_imp * vid_rate).astype(int)
             df['R_VIDEOSTARTS'] = video_starts
             starts_f = video_starts.astype(float)
 
@@ -574,6 +599,39 @@ class SyntheticDataGenerator:
 
         df['AUDIENCE_ID'] = audience_ids
         df['AUDIENCE_NAME'] = [AUDIENCE_MAP[aid] for aid in audience_ids]
+        return df
+
+    # ------------------------------------------------------------------
+    # Ensure all five US regions are represented in execution names
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _inject_west_region(df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+        """Rewrite a share of CHANNEL_EXECUTION_NAME suffixes to 'West'.
+
+        The generation-rule categories only contain the four original region
+        suffixes (Northeast, Southeast, Midwest, Southwest).  This method
+        randomly reassigns ~20% of rows to 'West' so that downstream
+        location assignment populates all five US Census regions.
+        """
+        tn = table_name.upper()
+        if tn not in ('CAMPAIGN_DELIVERY', 'CAMPAIGN_KPI'):
+            return df
+        if 'CHANNEL_EXECUTION_NAME' not in df.columns:
+            return df
+
+        existing_suffixes = {'Northeast', 'Southeast', 'Midwest', 'Southwest'}
+        west_frac = 0.20
+        mask = np.random.random(len(df)) < west_frac
+
+        names = df['CHANNEL_EXECUTION_NAME'].values.copy()
+        for i in np.where(mask)[0]:
+            name = str(names[i]) if names[i] else ''
+            if '_' in name:
+                prefix, suffix = name.rsplit('_', 1)
+                if suffix in existing_suffixes:
+                    names[i] = prefix + '_West'
+        df['CHANNEL_EXECUTION_NAME'] = names
         return df
 
     # ------------------------------------------------------------------
@@ -734,6 +792,11 @@ class SyntheticDataGenerator:
             df = self._assign_audience_columns(df, table_name)
         except Exception as e:
             print(f"  Warning: audience assignment failed: {e}")
+
+        try:
+            df = self._inject_west_region(df, table_name)
+        except Exception as e:
+            print(f"  Warning: West region injection failed: {e}")
 
         try:
             df = self._assign_location_columns(df, table_name)
