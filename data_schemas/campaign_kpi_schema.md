@@ -26,6 +26,8 @@ Campaign measurement KPI fact table containing performance metrics (CTR, CPC, CP
 - `CREATIVE_CONCEPT` (VARCHAR): Creative concept description in uppercase (e.g., SPRING_ANIMATED_LIFESTYLE_V2). Business purpose: identifies the creative concept/theme for concept-level performance comparison. | :upper
 - `CHANNEL_EXECUTION_ID` (VARCHAR): Unique channel execution identifier (e.g., CE_00092). Business purpose: links to the specific media execution/placement for execution-level reporting. | :upper
 - `CHANNEL_EXECUTION_NAME` (VARCHAR): Channel execution name encoding tactic, targeting, product category, and region (e.g., PROG_Prospecting_In_Market_Bedroom_Southwest). Business purpose: descriptive execution label for reporting.
+- `AUDIENCE_ID` (VARCHAR): Unique audience segment identifier (e.g., AUD_001). Business purpose: links to the targeted audience segment for audience-level KPI analysis and cross-table joins. | :upper
+- `AUDIENCE_NAME` (VARCHAR): Descriptive audience segment name (e.g., Tech Enthusiasts - Early Adopters). Business purpose: human-readable audience label for reporting and segmentation analysis. Assigned based on campaign objective, funnel stage, tactic, and channel.
 - `KPI` (VARCHAR): Key Performance Indicator type (CTR, CPC, CPM, ROAS). Business purpose: identifies which KPI the row's numerator/denominator represent; use to filter or pivot by KPI type. | :upper :all-unique-values
 - `BENCHMARK_VALUE` (VARCHAR): Benchmark flag value (0 or 1). Business purpose: indicates whether a benchmark comparison value exists for this KPI row. | :all-unique-values
 - `KPI_CLASS` (VARCHAR): KPI classification category (Primary). Business purpose: classifies the KPI tier for prioritized reporting. | :all-unique-values
@@ -45,8 +47,9 @@ Campaign measurement KPI fact table containing performance metrics (CTR, CPC, CP
 - `R_VIEWS` (INTEGER): Number of qualified ad views. Business purpose: viewability/awareness metric.
 
 ## Table Relationships
-- Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER) with CAMPAIGN_DELIVERY and CAMPAIGN_PACING tables for cross-table analysis.
+- Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER, AUDIENCE_ID) with CAMPAIGN_DELIVERY and CAMPAIGN_PACING tables for cross-table analysis.
 - CHANNEL_EXECUTION_ID can be used to join with CAMPAIGN_DELIVERY for combining KPI and delivery-level metrics.
+- AUDIENCE_ID enables audience-level KPI analysis across all three campaign tables.
 
 ## Business Context
 This is the primary KPI fact table for the IO Tech campaign measurement platform. It stores pre-computed KPI numerator/denominator pairs (KPI_N, KPI_D) alongside benchmark values (BM_N, BM_D), enabling KPI computation, benchmark comparison, and trend analysis. The table also carries raw media delivery metrics (R_MEDIACOST, R_IMPRESSIONS, R_CLICKS, video quartile completions) for holistic campaign performance assessment. Data spans multiple fiscal years across 11 channels, 4 objectives, 4 funnel stages, and approximately 160 campaigns.

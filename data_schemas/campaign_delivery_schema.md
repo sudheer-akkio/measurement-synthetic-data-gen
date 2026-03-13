@@ -23,6 +23,8 @@ Campaign delivery fact table containing raw media performance metrics (spend, im
 - `CHANNEL_EXECUTION_TYPE` (VARCHAR): Type of channel execution identifier (e.g., ADSET_ID, CAMPAIGN_ID, akkio_PID). Business purpose: indicates the ID type used for the execution record. Values are mixed case.
 - `CHANNEL_EXECUTION_ID` (VARCHAR): Unique channel execution identifier (e.g., CE_00001). Business purpose: links to the specific media execution/placement for execution-level reporting. | :upper
 - `CHANNEL_EXECUTION_NAME` (VARCHAR): Channel execution name encoding tactic, targeting, product category, and region (e.g., PROG_Awareness_In_Market_Home_Northeast). Business purpose: descriptive execution label for reporting. Values are mixed case with underscores.
+- `AUDIENCE_ID` (VARCHAR): Unique audience segment identifier (e.g., AUD_001). Business purpose: links to the targeted audience segment for audience-level performance analysis and cross-table joins. | :upper
+- `AUDIENCE_NAME` (VARCHAR): Descriptive audience segment name (e.g., Tech Enthusiasts - Early Adopters). Business purpose: human-readable audience label for reporting and segmentation analysis. Assigned based on campaign objective, funnel stage, tactic, and channel.
 - `R_MEDIACOST` (FLOAT): Media cost in dollars. Business purpose: primary spend metric for budget tracking, pacing, and ROI calculation.
 - `R_IMPRESSIONS` (FLOAT): Number of ad impressions served. Business purpose: reach metric; denominator for CPM and CTR calculations.
 - `R_CLICKS` (FLOAT): Number of ad clicks. Business purpose: engagement metric; numerator for CTR calculation.
@@ -35,8 +37,9 @@ Campaign delivery fact table containing raw media performance metrics (spend, im
 - `R_VIEWS` (INTEGER): Number of qualified ad views. Business purpose: viewability/awareness metric.
 
 ## Table Relationships
-- Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER, CHANNEL_EXECUTION_ID) with CAMPAIGN_KPI for combining delivery and KPI data.
-- Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER) with CAMPAIGN_PACING for delivery-vs-planned-spend pacing analysis.
+- Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER, CHANNEL_EXECUTION_ID, AUDIENCE_ID) with CAMPAIGN_KPI for combining delivery and KPI data.
+- Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER, AUDIENCE_ID) with CAMPAIGN_PACING for delivery-vs-planned-spend pacing analysis.
+- AUDIENCE_ID enables audience-level performance analysis across all three campaign tables.
 
 ## Business Context
 This is the primary delivery fact table for the IO Tech campaign measurement platform. It tracks raw media delivery metrics (spend, impressions, clicks, video quartile completions) at a granular execution level. The table supports delivery trend analysis, channel and tactic performance comparison, video engagement reporting, and spend monitoring. Data spans multiple fiscal years across 11 channels, 4 objectives, 4 funnel stages, and approximately 160 campaigns.

@@ -20,14 +20,17 @@ Campaign pacing fact table containing daily planned spend budgets alongside actu
 - `BUYING_CHANNEL` (VARCHAR): Channel used for media buying in title case (e.g., Affiliate, Programmatic, Social). Business purpose: identifies the buying channel for procurement-level analysis. Note: uses title case unlike CHANNEL column.
 - `ESTIMATE_ID` (VARCHAR): Estimate/budget line identifier (e.g., BUD_00001). Business purpose: links to the specific budget estimate for estimate-level tracking. | :upper
 - `ESTIMATE_NAME` (VARCHAR): Estimate name with pipe-delimited segments (e.g., Search | BAU | WK01). Business purpose: human-readable estimate label for reporting.
+- `AUDIENCE_ID` (VARCHAR): Unique audience segment identifier (e.g., AUD_001). Business purpose: links to the targeted audience segment for audience-level pacing analysis and cross-table joins. | :upper
+- `AUDIENCE_NAME` (VARCHAR): Descriptive audience segment name (e.g., Tech Enthusiasts - Early Adopters). Business purpose: human-readable audience label for reporting and segmentation analysis. Assigned based on campaign and channel context.
 - `DAILY_PLANNED_SPEND` (FLOAT): Daily planned/budgeted spend amount in dollars. Business purpose: the target daily spend used as the baseline for pacing analysis. Typical usage: compare to R_MEDIACOST for pacing ratio (actual/planned).
 - `SOURCE` (VARCHAR): Data source identifier (CUSTOM). Single value in dataset. | :upper :all-unique-values
 - `R_MEDIACOST` (FLOAT): Actual media cost in dollars. Business purpose: actual spend metric for pacing comparison against DAILY_PLANNED_SPEND.
 - `R_IMPRESSIONS` (FLOAT): Number of ad impressions served. Business purpose: delivery volume metric for impression-based pacing.
 
 ## Table Relationships
-- Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER) with CAMPAIGN_DELIVERY and CAMPAIGN_KPI tables for cross-table analysis.
+- Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER, AUDIENCE_ID) with CAMPAIGN_DELIVERY and CAMPAIGN_KPI tables for cross-table analysis.
 - DAILY_PLANNED_SPEND vs R_MEDIACOST enables pacing ratio computation for budget utilization tracking.
+- AUDIENCE_ID enables audience-level pacing analysis across all three campaign tables.
 
 ## Business Context
 This is the primary pacing fact table for the IO Tech campaign measurement platform. It tracks daily planned spend budgets alongside actual media cost and impressions, enabling spend-vs-plan pacing analysis, budget utilization monitoring, and forecast-to-actual comparison. The table supports weekly budget tracking (via BUDGET_NAME week encoding), partner-level pacing, and channel-level budget allocation analysis. Data spans multiple fiscal years across 11 channels, approximately 160 campaigns, and 200+ budget lines.

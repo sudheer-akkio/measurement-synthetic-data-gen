@@ -18,6 +18,44 @@ CORRELATED_METRIC_COLUMNS = {
     'DAILY_PLANNED_SPEND',
 }
 
+AUDIENCE_MAP = {
+    'AUD_001': 'Tech Enthusiasts - Early Adopters',
+    'AUD_002': 'Smart Home Adopters',
+    'AUD_003': 'Young Professionals 25-34',
+    'AUD_004': 'Eco-Conscious Consumers',
+    'AUD_005': 'Mobile Accessory In-Market Shoppers',
+    'AUD_006': 'Device Upgraders - Active Researchers',
+    'AUD_007': 'Business Tech Decision Makers',
+    'AUD_008': 'Connected Home - Parents with Kids',
+    'AUD_009': 'Site Visitors - Retargeting',
+    'AUD_010': 'Cart Abandoners - Retargeting',
+    'AUD_011': 'Lookalike - High-Value Customers',
+    'AUD_012': 'Past Purchasers - Cross-Sell',
+    'AUD_013': 'Competitor Brand Conquesting',
+    'AUD_014': 'Frequent Online Shoppers',
+    'AUD_015': 'High-Income HH 100K+',
+    'AUD_016': 'College Students and Gen Z',
+    'AUD_017': 'Outdoor and Active Lifestyle',
+    'AUD_018': 'CTV Cord Cutters',
+    'AUD_019': 'Gaming and Entertainment Enthusiasts',
+    'AUD_020': 'Auto Enthusiasts - In-Vehicle Tech',
+}
+
+AUDIENCE_IDS = list(AUDIENCE_MAP.keys())
+
+# Audience pools keyed by campaign context for correlated assignment
+_AUD_RETARGETING = ['AUD_009', 'AUD_010', 'AUD_012']
+_AUD_UPPER_FUNNEL = ['AUD_001', 'AUD_002', 'AUD_003', 'AUD_004', 'AUD_015', 'AUD_018']
+_AUD_MID_FUNNEL = ['AUD_005', 'AUD_006', 'AUD_007', 'AUD_008', 'AUD_016']
+_AUD_LOWER_FUNNEL = ['AUD_005', 'AUD_006', 'AUD_011', 'AUD_013', 'AUD_014']
+_AUD_AUDIO = ['AUD_001', 'AUD_017', 'AUD_019', 'AUD_003']
+_AUD_SOCIAL = ['AUD_003', 'AUD_016', 'AUD_014', 'AUD_019']
+_AUD_VIDEO_CTV = ['AUD_018', 'AUD_019', 'AUD_001', 'AUD_015']
+
+RETARGETING_TACTICS = {
+    'display retargeting', 'video retargeting', 'remarketing', 'native retargeting',
+}
+
 
 class SyntheticDataGenerator:
     """
@@ -408,6 +446,59 @@ class SyntheticDataGenerator:
         return df
 
     # ------------------------------------------------------------------
+    # Audience assignment (correlated to objective/funnel/tactic/channel)
+    # ------------------------------------------------------------------
+
+    def _assign_audience_columns(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+        """Assign AUDIENCE_ID and AUDIENCE_NAME based on existing dimensions.
+
+        For DELIVERY and KPI tables: uses OBJECTIVE, FUNNEL, TACTIC, CHANNEL.
+        For PACING table: uses CAMPAIGN name pattern and CHANNEL.
+        """
+        n = len(df)
+        tn = table_name.upper()
+        audience_ids = np.empty(n, dtype=object)
+
+        has_tactic = 'TACTIC' in df.columns
+        has_objective = 'OBJECTIVE' in df.columns
+        has_funnel = 'FUNNEL' in df.columns
+        has_channel = 'CHANNEL' in df.columns
+
+        tactic_vals = df['TACTIC'].values if has_tactic else np.array([''] * n)
+        obj_vals = df['OBJECTIVE'].values if has_objective else np.array([''] * n)
+        funnel_vals = df['FUNNEL'].values if has_funnel else np.array([''] * n)
+        channel_vals = df['CHANNEL'].values if has_channel else np.array([''] * n)
+
+        for i in range(n):
+            tactic = str(tactic_vals[i]).lower().strip() if tactic_vals[i] else ''
+            obj = str(obj_vals[i]).upper().strip() if obj_vals[i] else ''
+            funnel = str(funnel_vals[i]).upper().strip() if funnel_vals[i] else ''
+            channel = str(channel_vals[i]).upper().strip() if channel_vals[i] else ''
+
+            if tactic in RETARGETING_TACTICS:
+                pool = _AUD_RETARGETING
+            elif channel in ('DIGITAL AUDIO', 'AUDIO'):
+                pool = _AUD_AUDIO
+            elif channel in ('SOCIAL',):
+                pool = _AUD_SOCIAL
+            elif channel in ('VIDEO', 'PERFORMANCE VIDEO') or 'CTV' in channel:
+                pool = _AUD_VIDEO_CTV
+            elif funnel == 'UPPER FUNNEL' or obj == 'AWARENESS':
+                pool = _AUD_UPPER_FUNNEL
+            elif funnel == 'LOWER FUNNEL' or obj == 'CONVERSION':
+                pool = _AUD_LOWER_FUNNEL
+            elif funnel == 'MID FUNNEL' or obj == 'ENGAGEMENT':
+                pool = _AUD_MID_FUNNEL
+            else:
+                pool = AUDIENCE_IDS
+
+            audience_ids[i] = pool[np.random.randint(len(pool))]
+
+        df['AUDIENCE_ID'] = audience_ids
+        df['AUDIENCE_NAME'] = [AUDIENCE_MAP[aid] for aid in audience_ids]
+        return df
+
+    # ------------------------------------------------------------------
     # Post-processing for constant-value columns not handled by correlation
     # ------------------------------------------------------------------
 
@@ -493,6 +584,11 @@ class SyntheticDataGenerator:
             df = self._generate_correlated_metrics(df, table_name)
         except Exception as e:
             print(f"  Warning: correlated metric generation failed: {e}")
+
+        try:
+            df = self._assign_audience_columns(df, table_name)
+        except Exception as e:
+            print(f"  Warning: audience assignment failed: {e}")
 
         try:
             df = self._postprocess_constant_columns(df, generation_rules, table_name.lower())
