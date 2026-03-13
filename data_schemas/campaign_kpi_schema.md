@@ -28,6 +28,12 @@ Campaign measurement KPI fact table containing performance metrics (CTR, CPC, CP
 - `CHANNEL_EXECUTION_NAME` (VARCHAR): Channel execution name encoding tactic, targeting, product category, and region (e.g., PROG_Prospecting_In_Market_Bedroom_Southwest). Business purpose: descriptive execution label for reporting.
 - `AUDIENCE_ID` (VARCHAR): Unique audience segment identifier (e.g., AUD_001). Business purpose: links to the targeted audience segment for audience-level KPI analysis and cross-table joins. | :upper
 - `AUDIENCE_NAME` (VARCHAR): Descriptive audience segment name (e.g., Tech Enthusiasts - Early Adopters). Business purpose: human-readable audience label for reporting and segmentation analysis. Assigned based on campaign objective, funnel stage, tactic, and channel.
+- `DMA_CODE` (VARCHAR): DMA market code (e.g., 501, 803). Business purpose: geographic market segmentation for market-level KPI analysis. Correlated to the region suffix in CHANNEL_EXECUTION_NAME. | :upper
+- `DMA_NAME` (VARCHAR): DMA market name (e.g., NEW YORK, CHICAGO, LOS ANGELES). Business purpose: human-readable market label for geographic KPI reporting. | :upper
+- `STATE` (VARCHAR): US state 2-letter code (e.g., NY, CA, TX). Business purpose: state-level geographic segmentation for regional KPI analysis. | :upper
+- `REGION` (VARCHAR): US census region (NORTHEAST, SOUTHEAST, MIDWEST, SOUTHWEST, WEST). Business purpose: high-level regional KPI comparison and budget allocation analysis. | :upper :all-unique-values
+- `LATITUDE` (FLOAT): DMA centroid latitude coordinate. Business purpose: enables geographic map visualizations of KPI performance.
+- `LONGITUDE` (FLOAT): DMA centroid longitude coordinate. Business purpose: enables geographic map visualizations of KPI performance.
 - `KPI` (VARCHAR): Key Performance Indicator type (CTR, CPC, CPM, ROAS). Business purpose: identifies which KPI the row's numerator/denominator represent; use to filter or pivot by KPI type. | :upper :all-unique-values
 - `BENCHMARK_VALUE` (VARCHAR): Benchmark flag value (0 or 1). Business purpose: indicates whether a benchmark comparison value exists for this KPI row. | :all-unique-values
 - `KPI_CLASS` (VARCHAR): KPI classification category (Primary). Business purpose: classifies the KPI tier for prioritized reporting. | :all-unique-values
@@ -50,6 +56,7 @@ Campaign measurement KPI fact table containing performance metrics (CTR, CPC, CP
 - Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER, AUDIENCE_ID) with CAMPAIGN_DELIVERY and CAMPAIGN_PACING tables for cross-table analysis.
 - CHANNEL_EXECUTION_ID can be used to join with CAMPAIGN_DELIVERY for combining KPI and delivery-level metrics.
 - AUDIENCE_ID enables audience-level KPI analysis across all three campaign tables.
+- DMA_CODE, STATE, and REGION are shared across all three campaign tables for geographic KPI analysis.
 
 ## Business Context
 This is the primary KPI fact table for the IO Tech campaign measurement platform. It stores pre-computed KPI numerator/denominator pairs (KPI_N, KPI_D) alongside benchmark values (BM_N, BM_D), enabling KPI computation, benchmark comparison, and trend analysis. The table also carries raw media delivery metrics (R_MEDIACOST, R_IMPRESSIONS, R_CLICKS, video quartile completions) for holistic campaign performance assessment. Data spans multiple fiscal years across 11 channels, 4 objectives, 4 funnel stages, and approximately 160 campaigns.

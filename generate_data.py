@@ -56,6 +56,74 @@ RETARGETING_TACTICS = {
     'display retargeting', 'video retargeting', 'remarketing', 'native retargeting',
 }
 
+# State-to-region mapping (US Census regions, aligned with CHANNEL_EXECUTION_NAME suffixes)
+STATE_TO_REGION = {
+    'CT': 'NORTHEAST', 'DC': 'NORTHEAST', 'DE': 'NORTHEAST', 'MA': 'NORTHEAST',
+    'MD': 'NORTHEAST', 'ME': 'NORTHEAST', 'NH': 'NORTHEAST', 'NJ': 'NORTHEAST',
+    'NY': 'NORTHEAST', 'PA': 'NORTHEAST', 'RI': 'NORTHEAST', 'VT': 'NORTHEAST',
+    'AL': 'SOUTHEAST', 'AR': 'SOUTHEAST', 'FL': 'SOUTHEAST', 'GA': 'SOUTHEAST',
+    'KY': 'SOUTHEAST', 'LA': 'SOUTHEAST', 'MS': 'SOUTHEAST', 'NC': 'SOUTHEAST',
+    'SC': 'SOUTHEAST', 'TN': 'SOUTHEAST', 'VA': 'SOUTHEAST', 'WV': 'SOUTHEAST',
+    'IA': 'MIDWEST', 'IL': 'MIDWEST', 'IN': 'MIDWEST', 'KS': 'MIDWEST',
+    'MI': 'MIDWEST', 'MN': 'MIDWEST', 'MO': 'MIDWEST', 'ND': 'MIDWEST',
+    'NE': 'MIDWEST', 'OH': 'MIDWEST', 'SD': 'MIDWEST', 'WI': 'MIDWEST',
+    'AZ': 'SOUTHWEST', 'NM': 'SOUTHWEST', 'OK': 'SOUTHWEST', 'TX': 'SOUTHWEST',
+    'AK': 'WEST', 'CA': 'WEST', 'CO': 'WEST', 'HI': 'WEST', 'ID': 'WEST',
+    'MT': 'WEST', 'NV': 'WEST', 'OR': 'WEST', 'UT': 'WEST', 'WA': 'WEST',
+    'WY': 'WEST',
+}
+
+# Maps CHANNEL_EXECUTION_NAME region suffix to the region values used in our column
+_EXEC_NAME_REGION_MAP = {
+    'Northeast': 'NORTHEAST',
+    'Southeast': 'SOUTHEAST',
+    'Midwest': 'MIDWEST',
+    'Southwest': 'SOUTHWEST',
+}
+
+
+def _build_dma_centroid_lookup(location_csv: str = "data/location_data.csv") -> Dict[str, List[Dict]]:
+    """Build a region-keyed lookup of DMA centroids from the zip-level location CSV.
+
+    Returns a dict: { 'NORTHEAST': [ {dma_code, dma_name, state, region, lat, lon}, ... ], ... }
+    """
+    df = pd.read_csv(location_csv)
+
+    # Parse lat/lon from the JSON LOCATION column
+    lats, lons = [], []
+    for loc_json in df['LOCATION']:
+        parsed = json.loads(loc_json)
+        lats.append(float(parsed['latitude']))
+        lons.append(float(parsed['longitude']))
+    df['_lat'] = lats
+    df['_lon'] = lons
+
+    # Compute centroids per DMA: avg lat/lon, mode state
+    centroids = df.groupby('DMA_CODE').agg(
+        dma_name=('DMA_NAME', 'first'),
+        state=('STATE', lambda x: x.mode().iloc[0]),
+        latitude=('_lat', 'mean'),
+        longitude=('_lon', 'mean'),
+    ).reset_index()
+
+    centroids['region'] = centroids['state'].map(STATE_TO_REGION).fillna('WEST')
+    centroids['latitude'] = centroids['latitude'].round(6)
+    centroids['longitude'] = centroids['longitude'].round(6)
+
+    region_lookup: Dict[str, List[Dict]] = {}
+    for _, row in centroids.iterrows():
+        entry = {
+            'dma_code': str(int(row['DMA_CODE'])),
+            'dma_name': row['dma_name'],
+            'state': row['state'],
+            'region': row['region'],
+            'latitude': row['latitude'],
+            'longitude': row['longitude'],
+        }
+        region_lookup.setdefault(row['region'], []).append(entry)
+
+    return region_lookup
+
 
 class SyntheticDataGenerator:
     """
@@ -74,6 +142,16 @@ class SyntheticDataGenerator:
         np.random.seed(42)
         random.seed(42)
         self._schema_column_types = {}
+
+        location_csv = Path(output_dir) / "location_data.csv"
+        if location_csv.exists():
+            self._dma_by_region = _build_dma_centroid_lookup(str(location_csv))
+            self._all_dmas = [d for dmas in self._dma_by_region.values() for d in dmas]
+            print(f"Loaded DMA centroid lookup: {len(self._all_dmas)} DMAs across {len(self._dma_by_region)} regions")
+        else:
+            self._dma_by_region = {}
+            self._all_dmas = []
+            print(f"Warning: location_data.csv not found at {location_csv.resolve()}, skipping location assignment")
 
     def load_generation_rules(self) -> Dict[str, Dict]:
         """Load all generation rules from the stats directory."""
@@ -499,6 +577,73 @@ class SyntheticDataGenerator:
         return df
 
     # ------------------------------------------------------------------
+    # Location assignment (correlated to CHANNEL_EXECUTION_NAME region)
+    # ------------------------------------------------------------------
+
+    def _assign_location_columns(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+        """Assign DMA_CODE, DMA_NAME, STATE, REGION, LATITUDE, LONGITUDE.
+
+        For DELIVERY and KPI: correlates to the region suffix in CHANNEL_EXECUTION_NAME.
+        For PACING (no execution name): weighted random from full DMA pool.
+        """
+        if not self._all_dmas:
+            return df
+
+        n = len(df)
+        tn = table_name.upper()
+        has_exec_name = 'CHANNEL_EXECUTION_NAME' in df.columns
+
+        dma_codes = np.empty(n, dtype=object)
+        dma_names = np.empty(n, dtype=object)
+        states = np.empty(n, dtype=object)
+        regions = np.empty(n, dtype=object)
+        latitudes = np.zeros(n, dtype=float)
+        longitudes = np.zeros(n, dtype=float)
+
+        if has_exec_name and tn in ('CAMPAIGN_DELIVERY', 'CAMPAIGN_KPI'):
+            exec_names = df['CHANNEL_EXECUTION_NAME'].values
+            for i in range(n):
+                name = str(exec_names[i]) if exec_names[i] else ''
+                suffix = name.rsplit('_', 1)[-1] if '_' in name else ''
+                mapped_region = _EXEC_NAME_REGION_MAP.get(suffix)
+
+                if mapped_region and mapped_region in self._dma_by_region:
+                    pool = self._dma_by_region[mapped_region]
+                else:
+                    pool = self._all_dmas
+
+                entry = pool[np.random.randint(len(pool))]
+                dma_codes[i] = entry['dma_code']
+                dma_names[i] = entry['dma_name']
+                states[i] = entry['state']
+                regions[i] = entry['region']
+                latitudes[i] = entry['latitude']
+                longitudes[i] = entry['longitude']
+        else:
+            indices = np.random.randint(0, len(self._all_dmas), size=n)
+            for i in range(n):
+                entry = self._all_dmas[indices[i]]
+                dma_codes[i] = entry['dma_code']
+                dma_names[i] = entry['dma_name']
+                states[i] = entry['state']
+                regions[i] = entry['region']
+                latitudes[i] = entry['latitude']
+                longitudes[i] = entry['longitude']
+
+        df['DMA_CODE'] = dma_codes
+        df['DMA_NAME'] = dma_names
+        df['STATE'] = states
+        df['REGION'] = regions
+        df['LATITUDE'] = np.round(latitudes, 6)
+        df['LONGITUDE'] = np.round(longitudes, 6)
+
+        unique_regions = pd.Series(regions).value_counts().to_dict()
+        correlated = has_exec_name and tn in ('CAMPAIGN_DELIVERY', 'CAMPAIGN_KPI')
+        print(f"  Location assignment: correlated={correlated}, regions={unique_regions}")
+
+        return df
+
+    # ------------------------------------------------------------------
     # Post-processing for constant-value columns not handled by correlation
     # ------------------------------------------------------------------
 
@@ -589,6 +734,11 @@ class SyntheticDataGenerator:
             df = self._assign_audience_columns(df, table_name)
         except Exception as e:
             print(f"  Warning: audience assignment failed: {e}")
+
+        try:
+            df = self._assign_location_columns(df, table_name)
+        except Exception as e:
+            print(f"  Warning: location assignment failed: {e}")
 
         try:
             df = self._postprocess_constant_columns(df, generation_rules, table_name.lower())

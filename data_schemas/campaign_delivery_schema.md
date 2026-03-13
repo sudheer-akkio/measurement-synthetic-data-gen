@@ -25,6 +25,12 @@ Campaign delivery fact table containing raw media performance metrics (spend, im
 - `CHANNEL_EXECUTION_NAME` (VARCHAR): Channel execution name encoding tactic, targeting, product category, and region (e.g., PROG_Awareness_In_Market_Home_Northeast). Business purpose: descriptive execution label for reporting. Values are mixed case with underscores.
 - `AUDIENCE_ID` (VARCHAR): Unique audience segment identifier (e.g., AUD_001). Business purpose: links to the targeted audience segment for audience-level performance analysis and cross-table joins. | :upper
 - `AUDIENCE_NAME` (VARCHAR): Descriptive audience segment name (e.g., Tech Enthusiasts - Early Adopters). Business purpose: human-readable audience label for reporting and segmentation analysis. Assigned based on campaign objective, funnel stage, tactic, and channel.
+- `DMA_CODE` (VARCHAR): DMA market code (e.g., 501, 803). Business purpose: geographic market segmentation for market-level performance analysis. Correlated to the region suffix in CHANNEL_EXECUTION_NAME. | :upper
+- `DMA_NAME` (VARCHAR): DMA market name (e.g., NEW YORK, CHICAGO, LOS ANGELES). Business purpose: human-readable market label for geographic reporting and market-level spend analysis. | :upper
+- `STATE` (VARCHAR): US state 2-letter code (e.g., NY, CA, TX). Business purpose: state-level geographic segmentation for regional performance analysis. | :upper
+- `REGION` (VARCHAR): US census region (NORTHEAST, SOUTHEAST, MIDWEST, SOUTHWEST, WEST). Business purpose: high-level regional performance analysis and budget allocation comparison. | :upper :all-unique-values
+- `LATITUDE` (FLOAT): DMA centroid latitude coordinate. Business purpose: enables geographic map visualizations of delivery performance.
+- `LONGITUDE` (FLOAT): DMA centroid longitude coordinate. Business purpose: enables geographic map visualizations of delivery performance.
 - `R_MEDIACOST` (FLOAT): Media cost in dollars. Business purpose: primary spend metric for budget tracking, pacing, and ROI calculation.
 - `R_IMPRESSIONS` (FLOAT): Number of ad impressions served. Business purpose: reach metric; denominator for CPM and CTR calculations.
 - `R_CLICKS` (FLOAT): Number of ad clicks. Business purpose: engagement metric; numerator for CTR calculation.
@@ -40,6 +46,7 @@ Campaign delivery fact table containing raw media performance metrics (spend, im
 - Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER, CHANNEL_EXECUTION_ID, AUDIENCE_ID) with CAMPAIGN_KPI for combining delivery and KPI data.
 - Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER, AUDIENCE_ID) with CAMPAIGN_PACING for delivery-vs-planned-spend pacing analysis.
 - AUDIENCE_ID enables audience-level performance analysis across all three campaign tables.
+- DMA_CODE, STATE, and REGION are shared across all three campaign tables for geographic performance analysis.
 
 ## Business Context
 This is the primary delivery fact table for the IO Tech campaign measurement platform. It tracks raw media delivery metrics (spend, impressions, clicks, video quartile completions) at a granular execution level. The table supports delivery trend analysis, channel and tactic performance comparison, video engagement reporting, and spend monitoring. Data spans multiple fiscal years across 11 channels, 4 objectives, 4 funnel stages, and approximately 160 campaigns.

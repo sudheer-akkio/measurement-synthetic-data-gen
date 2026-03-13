@@ -22,6 +22,12 @@ Campaign pacing fact table containing daily planned spend budgets alongside actu
 - `ESTIMATE_NAME` (VARCHAR): Estimate name with pipe-delimited segments (e.g., Search | BAU | WK01). Business purpose: human-readable estimate label for reporting.
 - `AUDIENCE_ID` (VARCHAR): Unique audience segment identifier (e.g., AUD_001). Business purpose: links to the targeted audience segment for audience-level pacing analysis and cross-table joins. | :upper
 - `AUDIENCE_NAME` (VARCHAR): Descriptive audience segment name (e.g., Tech Enthusiasts - Early Adopters). Business purpose: human-readable audience label for reporting and segmentation analysis. Assigned based on campaign and channel context.
+- `DMA_CODE` (VARCHAR): DMA market code (e.g., 501, 803). Business purpose: geographic market segmentation for market-level budget pacing analysis. | :upper
+- `DMA_NAME` (VARCHAR): DMA market name (e.g., NEW YORK, CHICAGO, LOS ANGELES). Business purpose: human-readable market label for geographic pacing reporting. | :upper
+- `STATE` (VARCHAR): US state 2-letter code (e.g., NY, CA, TX). Business purpose: state-level geographic segmentation for regional pacing analysis. | :upper
+- `REGION` (VARCHAR): US census region (NORTHEAST, SOUTHEAST, MIDWEST, SOUTHWEST, WEST). Business purpose: high-level regional pacing comparison and budget allocation analysis. | :upper :all-unique-values
+- `LATITUDE` (FLOAT): DMA centroid latitude coordinate. Business purpose: enables geographic map visualizations of pacing data.
+- `LONGITUDE` (FLOAT): DMA centroid longitude coordinate. Business purpose: enables geographic map visualizations of pacing data.
 - `DAILY_PLANNED_SPEND` (FLOAT): Daily planned/budgeted spend amount in dollars. Business purpose: the target daily spend used as the baseline for pacing analysis. Typical usage: compare to R_MEDIACOST for pacing ratio (actual/planned).
 - `SOURCE` (VARCHAR): Data source identifier (CUSTOM). Single value in dataset. | :upper :all-unique-values
 - `R_MEDIACOST` (FLOAT): Actual media cost in dollars. Business purpose: actual spend metric for pacing comparison against DAILY_PLANNED_SPEND.
@@ -31,6 +37,7 @@ Campaign pacing fact table containing daily planned spend budgets alongside actu
 - Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER, AUDIENCE_ID) with CAMPAIGN_DELIVERY and CAMPAIGN_KPI tables for cross-table analysis.
 - DAILY_PLANNED_SPEND vs R_MEDIACOST enables pacing ratio computation for budget utilization tracking.
 - AUDIENCE_ID enables audience-level pacing analysis across all three campaign tables.
+- DMA_CODE, STATE, and REGION are shared across all three campaign tables for geographic pacing analysis.
 
 ## Business Context
 This is the primary pacing fact table for the IO Tech campaign measurement platform. It tracks daily planned spend budgets alongside actual media cost and impressions, enabling spend-vs-plan pacing analysis, budget utilization monitoring, and forecast-to-actual comparison. The table supports weekly budget tracking (via BUDGET_NAME week encoding), partner-level pacing, and channel-level budget allocation analysis. Data spans multiple fiscal years across 11 channels, approximately 160 campaigns, and 200+ budget lines.

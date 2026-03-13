@@ -80,7 +80,7 @@ JOIN CAMPAIGN_PACING p
   AND k.AUDIENCE_ID = p.AUDIENCE_ID
 ```
 
-**Shared join keys across all three tables:** `BRAND`, `LOB`, `CHANNEL`, `CAMPAIGN`, `PARTNER`, `AUDIENCE_ID`.  
+**Shared join keys across all three tables:** `BRAND`, `LOB`, `CHANNEL`, `CAMPAIGN`, `PARTNER`, `AUDIENCE_ID`, `DMA_CODE`, `STATE`, `REGION`.  
 **Delivery ↔ KPI additionally share:** `CHANNEL_EXECUTION_ID` for execution-level joins.
 
 ---
@@ -249,6 +249,10 @@ Certain metric columns are **zero by design** for non-applicable channels. Never
 **Question:** "Which audiences are performing best? How does campaign performance vary by audience?"  
 **Approach:** Use `AUDIENCE_ID` and `AUDIENCE_NAME` columns available in all three campaign tables. Group by `AUDIENCE_ID` or `AUDIENCE_NAME` to compare spend, efficiency (CPC, CPM, CTR), and KPI performance across audience segments. Cross-reference with CAMPAIGN_KPI for audience-level ROAS and benchmark comparison. Combine with CAMPAIGN_PACING for audience-level budget utilization. Audience segments are correlated to campaign objective, funnel stage, tactic, and channel — retargeting tactics map to retargeting audiences while upper-funnel awareness campaigns map to broad prospecting audiences. There are 20 audience segments spanning upper-funnel (e.g., Tech Enthusiasts, Smart Home Adopters), mid-funnel (e.g., In-Market Shoppers, Device Upgraders), lower-funnel (e.g., Site Visitors Retargeting, Lookalike), and cross-funnel (e.g., CTV Cord Cutters, College Students) segments.
 
+### 6l. Geographic Performance Analysis
+**Question:** "How does performance vary by region, state, or DMA market? Which markets are most efficient?"  
+**Approach:** Use `REGION`, `STATE`, `DMA_CODE`, and `DMA_NAME` columns available in all three campaign tables. Group by `REGION` for high-level regional comparison (NORTHEAST, SOUTHEAST, MIDWEST, SOUTHWEST, WEST). Group by `STATE` for state-level analysis (50 US states). Group by `DMA_CODE, DMA_NAME` for market-level granularity (~186 DMAs). Compare spend allocation, efficiency metrics (CPC, CPM, CTR), and KPI performance across geographies. Use `LATITUDE` and `LONGITUDE` (DMA centroid coordinates) for map-based visualizations — scatter/bubble maps showing spend, impressions, or efficiency by market. Cross-dimensional analysis is supported: performance by region x channel, state x funnel, DMA x partner, etc. In CAMPAIGN_DELIVERY and CAMPAIGN_KPI, location is correlated to the region suffix in `CHANNEL_EXECUTION_NAME` (e.g., rows with `_Northeast` execution names are assigned to Northeast states/DMAs). Use CAMPAIGN_PACING for geographic budget pacing: compare `R_MEDIACOST` vs `DAILY_PLANNED_SPEND` by region or state.
+
 ---
 
 ## 7. DEFAULTS & INTENT MAPPING
@@ -277,6 +281,10 @@ Certain metric columns are **zero by design** for non-applicable channels. Never
 | "by creative group" | `GROUP BY CREATIVE_GROUP` (CAMPAIGN_KPI only) |
 | "by creative concept" | `GROUP BY CREATIVE_CONCEPT` (CAMPAIGN_KPI only) |
 | "by execution" / "by placement" | `GROUP BY CHANNEL_EXECUTION_ID, CHANNEL_EXECUTION_NAME` |
+| "by region" / "by geography" | `GROUP BY REGION` |
+| "by state" | `GROUP BY STATE` |
+| "by DMA" / "by market" / "by metro" | `GROUP BY DMA_CODE, DMA_NAME` |
+| "map" / "geographic map" / "show on map" | Use `LATITUDE`, `LONGITUDE` for scatter/bubble map plotting |
 | "by budget" / "by budget line" | `GROUP BY BUDGET_ID, BUDGET_NAME` (CAMPAIGN_PACING only) |
 | "trend" / "over time" / "weekly" | `GROUP BY DATE_TRUNC('week', DATE)` |
 | "monthly" / "by month" | `GROUP BY DATE_TRUNC('month', DATE)` |
@@ -319,6 +327,19 @@ Certain metric columns are **zero by design** for non-applicable channels. Never
 | `AUDIENCE_NAME` | Tech Enthusiasts - Early Adopters, Smart Home Adopters, Young Professionals 25-34, Eco-Conscious Consumers, Mobile Accessory In-Market Shoppers, Device Upgraders - Active Researchers, Business Tech Decision Makers, Connected Home - Parents with Kids, Site Visitors - Retargeting, Cart Abandoners - Retargeting, Lookalike - High-Value Customers, Past Purchasers - Cross-Sell, Competitor Brand Conquesting, Frequent Online Shoppers, High-Income HH 100K+, College Students and Gen Z, Outdoor and Active Lifestyle, CTV Cord Cutters, Gaming and Entertainment Enthusiasts, Auto Enthusiasts - In-Vehicle Tech | Mixed case |
 
 Audience segments are correlated to campaign dimensions: retargeting tactics map to retargeting audiences (AUD_009, AUD_010, AUD_012); upper-funnel/awareness campaigns map to broad audiences (AUD_001–AUD_004); lower-funnel/conversion campaigns map to intent audiences (AUD_005, AUD_006, AUD_011, AUD_013, AUD_014); audio channels favor AUD_017/AUD_019; social channels favor AUD_003/AUD_016; video/CTV channels favor AUD_018/AUD_019.
+
+### Geographic Dimensions (shared across all three tables)
+
+| Dimension | Values | Case |
+|-----------|--------|------|
+| `DMA_CODE` | ~186 DMA market codes (e.g., 501 = New York, 803 = Los Angeles) | Numeric string |
+| `DMA_NAME` | NEW YORK, CHICAGO, LOS ANGELES, DALLAS-FT. WORTH, PHILADELPHIA, and ~181 more | UPPERCASE |
+| `STATE` | All 50 US states as 2-letter codes (NY, CA, TX, FL, IL, etc.) | UPPERCASE |
+| `REGION` | NORTHEAST, SOUTHEAST, MIDWEST, SOUTHWEST, WEST | UPPERCASE |
+| `LATITUDE` | DMA centroid latitude (e.g., 40.7128 for New York area) | Numeric |
+| `LONGITUDE` | DMA centroid longitude (e.g., -74.0060 for New York area) | Numeric |
+
+Location is correlated to existing data: in CAMPAIGN_DELIVERY and CAMPAIGN_KPI, DMA/state/region are derived from the region suffix in `CHANNEL_EXECUTION_NAME` (e.g., rows with `_Northeast` are assigned to Northeast states and DMAs). In CAMPAIGN_PACING, location is assigned via weighted random from the full DMA pool.
 
 ### CAMPAIGN_KPI (additional creative dimensions)
 
@@ -392,6 +413,7 @@ When listing available datasets to users, group them as:
 - **BUDGET_ID and ESTIMATE_ID share the same value space** (`BUD_XXXXX` format) in CAMPAIGN_PACING.
 - **CHANNEL_EXECUTION_TYPE values are mixed case** — `ADSET_ID`, `CAMPAIGN_ID`, `akkio_PID` — no uniform case transformation.
 - **AUDIENCE_ID and AUDIENCE_NAME are available in all three campaign tables** — use `AUDIENCE_ID` as a join key alongside other shared dimensions. Audiences are correlated to campaign objective, funnel, tactic, and channel (not randomly assigned).
+- **Geographic columns (DMA_CODE, DMA_NAME, STATE, REGION, LATITUDE, LONGITUDE) are available in all three campaign tables** — use for geographic performance analysis. `LATITUDE` and `LONGITUDE` represent DMA centroid coordinates (average of all zip codes within the DMA), suitable for map visualizations but not individual-address precision. In DELIVERY and KPI tables, location is correlated to the region suffix in `CHANNEL_EXECUTION_NAME`.
 - **Non-campaign tables** (enrichment, first-party) have their own schemas and are not joinable to campaign tables via standard keys unless the user specifies a join strategy.
 - Do not fabricate or estimate metrics not present in the data.
 - Do not combine data across time periods unless specifically asked.
@@ -434,7 +456,7 @@ Before finalizing any query or output:
 - [ ] `KPI` column filtered when using CAMPAIGN_KPI (e.g., `WHERE KPI = 'CTR'`)
 - [ ] Channel-appropriate metrics only (no video metrics for SEARCH, etc.)
 - [ ] Time aggregation matches the question (daily, weekly via `DATE_TRUNC`, monthly)
-- [ ] Join keys correct when combining tables (`BRAND`, `LOB`, `CHANNEL`, `CAMPAIGN`, `PARTNER`, and optionally `CHANNEL_EXECUTION_ID`)
+- [ ] Join keys correct when combining tables (`BRAND`, `LOB`, `CHANNEL`, `CAMPAIGN`, `PARTNER`, and optionally `CHANNEL_EXECUTION_ID`, `DMA_CODE`)
 - [ ] Case conventions respected (CHANNEL is uppercase; PARTNER/NETWORK are lowercase; PACING's REPORTING_CHANNEL is title case)
 
 **Calculation correctness:**

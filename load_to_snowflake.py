@@ -22,28 +22,34 @@ data_folder = project_root / "data"
 # Load data dictionary information
 dd_path = project_root / "data_schemas"
 
-# Load data files using the utility function
+# Build set of table names that have a corresponding schema file
+available_schemas = {
+    f.stem.replace("_schema", "")
+    for f in dd_path.glob("*_schema.md")
+}
+
+manager = DataDictionaryManager(str(dd_path))
+
+# Load only data files that have a matching schema
 for filename, table in load_data_files(
     data_folder=data_folder,
     file_suffix=".csv",
     read_chunk_size=10000000
 ):
+    table_name = generate_table_name(filename, remove_suffix=".csv")
+
+    if table_name.lower() not in available_schemas:
+        print(f"Skipping {filename} (no schema found in {dd_path.name}/)")
+        continue
 
     print(f"Loading {filename}...")
     
-    # if there is data in obj.data, clear it
     if hasattr(obj, 'data') and len(obj.data) > 0:
         obj.data = pd.DataFrame()
 
     obj.data = table
 
-     # Generate table name from filename first
-    table_name = generate_table_name(filename, remove_suffix=".csv")
-
-    manager = DataDictionaryManager(str(dd_path))
-
     schema_file = f"{table_name.lower()}_schema.md"
-
     schema_obj = manager.load_data_dictionary(schema_file=schema_file, warehouse_type="snowflake")
 
     # Use the table name from the schema if available, otherwise use the generated one
