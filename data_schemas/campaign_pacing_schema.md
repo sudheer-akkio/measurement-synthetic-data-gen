@@ -1,35 +1,36 @@
 # Table Name: CAMPAIGN_PACING
 
 ## Table Description
-IO Tech campaign measurement pacing data | :short-name:pacing: :measurement:pacing: |<
+Campaign pacing fact table containing daily planned spend budgets alongside actual media cost and impressions at the campaign-partner-budget-date grain. Serves as the primary source for budget pacing analysis, spend-vs-plan tracking, and budget utilization reporting. | :short-name:pacing :measurement:pacing: |<
 
 ## Data Dictionary
 
 ### Fields:
 
-- `DATE` (DATE): Generated datetime field
-- `BRAND` (VARCHAR): Brand | :upper
-- `LOB` (VARCHAR): Line of Business | :upper
-- `CHANNEL` (VARCHAR): Delivery Channel | :upper
-- `CAMPAIGN` (VARCHAR): Generated categorical field (2709 unique values)
-- `PARTNER` (VARCHAR): Partner | :lower
-- `DNU` (VARCHAR):
-- `BUDGET_ID` (VARCHAR):
-- `BUDGET_NAME` (VARCHAR):
-- `REPORTING_CHANNEL` (VARCHAR):
-- `BUYING_CHANNEL` (VARCHAR):
-- `ESTIMATE_ID` (VARCHAR):
-- `ESTIMATE_NAME` (VARCHAR):
-- `DAILY_PLANNED_SPEND` (FLOAT):
-- `SOURCE` (VARCHAR):
-- `R_MEDIACOST` (FLOAT):
-- `R_IMPRESSIONS` (FLOAT):
+- `DATE` (DATE): Calendar date of the pacing record. Business purpose: primary time dimension for daily pacing analysis and spend-vs-plan trending.
+- `BRAND` (VARCHAR): Brand identifier. Single value in dataset. | :lower :all-unique-values
+- `LOB` (VARCHAR): Line of Business identifier. Single value in dataset. | :lower :all-unique-values
+- `CHANNEL` (VARCHAR): Top-level media delivery channel (e.g., PROGRAMMATIC, SOCIAL, EMAIL, AFFILIATE). Business purpose: primary channel segmentation for budget pacing analysis. | :upper :all-unique-values
+- `CAMPAIGN` (VARCHAR): Campaign name identifier encoding fiscal year, flight type, channel, and campaign type (e.g., IO_Tech_FY23_OF_PROG_BAU). Business purpose: primary campaign dimension for campaign-level pacing tracking.
+- `PARTNER` (VARCHAR): Media partner or vendor (e.g., google, tiktok, snapchat, linkedin). Business purpose: identifies the buying partner for partner-level pacing analysis. | :lower :all-unique-values
+- `DNU` (VARCHAR): Active/inactive status flag (ACTIVE). Business purpose: indicates whether the budget line is active for pacing. | :upper :all-unique-values
+- `BUDGET_ID` (VARCHAR): Unique budget identifier (e.g., BUD_00001). Business purpose: links to the specific budget allocation for budget-level tracking. | :upper
+- `BUDGET_NAME` (VARCHAR): Budget name with pipe-delimited segments (e.g., Search | BAU | WK01). Business purpose: human-readable budget label encoding channel, campaign type, and week for reporting.
+- `REPORTING_CHANNEL` (VARCHAR): Channel used for reporting rollups in title case (e.g., Affiliate, Digital Audio, Performance Video). Business purpose: standardized channel grouping for executive reporting. Note: uses title case unlike CHANNEL column.
+- `BUYING_CHANNEL` (VARCHAR): Channel used for media buying in title case (e.g., Affiliate, Programmatic, Social). Business purpose: identifies the buying channel for procurement-level analysis. Note: uses title case unlike CHANNEL column.
+- `ESTIMATE_ID` (VARCHAR): Estimate/budget line identifier (e.g., BUD_00001). Business purpose: links to the specific budget estimate for estimate-level tracking. | :upper
+- `ESTIMATE_NAME` (VARCHAR): Estimate name with pipe-delimited segments (e.g., Search | BAU | WK01). Business purpose: human-readable estimate label for reporting.
+- `DAILY_PLANNED_SPEND` (FLOAT): Daily planned/budgeted spend amount in dollars. Business purpose: the target daily spend used as the baseline for pacing analysis. Typical usage: compare to R_MEDIACOST for pacing ratio (actual/planned).
+- `SOURCE` (VARCHAR): Data source identifier (CUSTOM). Single value in dataset. | :upper :all-unique-values
+- `R_MEDIACOST` (FLOAT): Actual media cost in dollars. Business purpose: actual spend metric for pacing comparison against DAILY_PLANNED_SPEND.
+- `R_IMPRESSIONS` (FLOAT): Number of ad impressions served. Business purpose: delivery volume metric for impression-based pacing.
 
 ## Table Relationships
-*No explicit relationships defined - this is synthetic data for testing purposes*
+- Shares dimensional columns (BRAND, LOB, CHANNEL, CAMPAIGN, PARTNER) with CAMPAIGN_DELIVERY and CAMPAIGN_KPI tables for cross-table analysis.
+- DAILY_PLANNED_SPEND vs R_MEDIACOST enables pacing ratio computation for budget utilization tracking.
 
 ## Business Context
-This synthetic dataset was generated from the original CAMPAIGN_PACING table to maintain realistic data distributions while protecting sensitive information. The data includes perturbations to prevent exact replication of the source data.
+This is the primary pacing fact table for the IO Tech campaign measurement platform. It tracks daily planned spend budgets alongside actual media cost and impressions, enabling spend-vs-plan pacing analysis, budget utilization monitoring, and forecast-to-actual comparison. The table supports weekly budget tracking (via BUDGET_NAME week encoding), partner-level pacing, and channel-level budget allocation analysis. Data spans multiple fiscal years across 11 channels, approximately 160 campaigns, and 200+ budget lines.
 
 ## Notes
 - Data generated with statistical perturbation applied to protect source data privacy
@@ -37,3 +38,8 @@ This synthetic dataset was generated from the original CAMPAIGN_PACING table to 
 - Original table row count: 1048570
 - Generation timestamp: 2025-09-01 13:24:40
 - Statistical distributions have been modified to ensure synthetic data doesn't exactly replicate original patterns
+- BRAND and LOB columns contain lowercase underscore-separated values (e.g., io_tech)
+- CAMPAIGN values use mixed case with underscores (e.g., IO_Tech_FY23_OF_PROG_BAU) — no case transformation tag applied
+- REPORTING_CHANNEL and BUYING_CHANNEL use title case (e.g., Digital Audio, Performance Video) unlike the uppercase CHANNEL column — no case transformation tag applied since they are neither fully upper nor fully lower
+- BUDGET_NAME and ESTIMATE_NAME use pipe-delimited mixed case (e.g., Search | BAU | WK01) — no case transformation tag applied
+- BUDGET_ID and ESTIMATE_ID share the same value space (BUD_XXXXX format)
